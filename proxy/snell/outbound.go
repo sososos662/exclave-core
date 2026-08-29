@@ -15,6 +15,8 @@ import (
 	core "github.com/exclavenetwork/exclave-core/v5"
 	"github.com/exclavenetwork/exclave-core/v5/app/proxyman/outbound"
 	"github.com/exclavenetwork/exclave-core/v5/common"
+	"github.com/exclavenetwork/exclave-core/v5/common/buf"
+	"github.com/exclavenetwork/exclave-core/v5/common/bytespool"
 	v2net "github.com/exclavenetwork/exclave-core/v5/common/net"
 	"github.com/exclavenetwork/exclave-core/v5/common/session"
 	"github.com/exclavenetwork/exclave-core/v5/common/singbridge"
@@ -225,6 +227,26 @@ func (o *Outbound) Process(ctx context.Context, link *transport.Link, dialer int
 		if err != nil {
 			return err
 		}
+
+		// for server-speaks-first protocols
+		var firstPayload []byte
+		if reader, ok := link.Reader.(buf.TimeoutReader); ok {
+			if mb, _ := reader.ReadMultiBufferTimeout(proxy.FirstPayloadTimeout); mb != nil {
+				length := mb.Len()
+				firstPayload = bytespool.Alloc(length)
+				mb, _ = buf.SplitBytes(mb, firstPayload)
+				firstPayload = firstPayload[:length]
+				buf.ReleaseMulti(mb)
+			}
+		}
+		_, err = serverConn.Write(firstPayload)
+		if firstPayload != nil {
+			bytespool.Free(firstPayload)
+		}
+		if err != nil {
+			return singbridge.ReturnError(err)
+		}
+
 		return singbridge.ReturnError(bufio.CopyConn(detachedCtx, singbridge.NewPipeConnWrapper(link), serverConn))
 	} else {
 		rawConn, err := dialer.Dial(detachedCtx, o.serverAddr)
