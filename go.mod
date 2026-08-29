@@ -28,7 +28,7 @@ require (
 	github.com/sagernet/sing-quic v0.7.0-beta.4
 	github.com/sagernet/sing-shadowsocks v0.2.9
 	github.com/sagernet/sing-shadowsocks2 v0.2.2
-	github.com/sagernet/sing-snell v0.0.0-20260824011554-f8ab8029469a
+	github.com/sagernet/sing-snell v0.0.0-20260829071736-20f2eaec77c3
 	github.com/seiflotfy/cuckoofilter v0.0.0-20240715131351-a2f2c23f1771
 	github.com/stretchr/testify v1.12.1
 	github.com/v2fly/BrowserBridge v0.0.0-20210430233438-0570fc1d7d08

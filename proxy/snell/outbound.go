@@ -52,6 +52,7 @@ type Outbound struct {
 	userKey      []byte
 	obfsMode     snell.ObfsMode
 	obfsHost     string
+	obfsURI      string
 	version      uint32
 	reuse        bool
 	mode         snellv6.Mode
@@ -87,12 +88,19 @@ func NewClient(ctx context.Context, config *ClientConfig) (*Outbound, error) {
 			if config.ObfsHost != "" {
 				return nil, newError(`invalid obfsHost for obfsMode "none"`)
 			}
+			if config.ObfsUri != "" {
+				return nil, newError(`invalid ObfsURI for obfsMode "none"`)
+			}
 		case "http":
 			outbound.obfsMode = snell.ObfsModeHTTP
 			outbound.obfsHost = config.ObfsHost
+			outbound.obfsURI = config.ObfsUri
 		case "tls":
 			outbound.obfsMode = snell.ObfsModeTLS
 			outbound.obfsHost = config.ObfsHost
+			if config.ObfsUri != "" {
+				return nil, newError(`invalid ObfsURI for obfsMode "tls"`)
+			}
 		default:
 			return nil, newError("invalid snell obfsMode: ", config.ObfsMode)
 		}
