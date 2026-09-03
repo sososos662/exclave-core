@@ -38,6 +38,7 @@ func init() {
 
 func dialWebsocket(ctx context.Context, dest net.Destination, streamSettings *internet.MemoryStreamConfig) (net.Conn, error) {
 	wsSettings := streamSettings.ProtocolSettings.(*Config)
+	newError("wsDBG settings: path=[", wsSettings.GetPath(), "] nheaders=", len(wsSettings.GetHeader()), " fronting=[", wsSettings.GetFrontingHost(), "]").WriteToLog(session.ExportIDToError(ctx))
 
 	protocol := "ws"
 
