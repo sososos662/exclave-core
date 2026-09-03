@@ -78,6 +78,8 @@ type Config struct {
 	UseBrowserForwarding bool      `protobuf:"varint,6,opt,name=use_browser_forwarding,json=useBrowserForwarding,proto3" json:"use_browser_forwarding,omitempty"`
 	EarlyDataHeaderName  string    `protobuf:"bytes,7,opt,name=early_data_header_name,json=earlyDataHeaderName,proto3" json:"early_data_header_name,omitempty"`
 	ParseXForwardedFor   bool      `protobuf:"varint,8,opt,name=parse_x_forwarded_for,json=parseXForwardedFor,proto3" json:"parse_x_forwarded_for,omitempty"`
+	// Optional domain-fronting host, see config.proto.
+	FrontingHost         string    `protobuf:"bytes,9,opt,name=fronting_host,json=frontingHost,proto3" json:"fronting_host,omitempty"`
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
 }
@@ -161,24 +163,29 @@ func (x *Config) GetParseXForwardedFor() bool {
 	return false
 }
 
+func (x *Config) GetFrontingHost() string {
+	if x != nil {
+		return x.FrontingHost
+	}
+	return ""
+}
+
 var File_transport_internet_websocket_config_proto protoreflect.FileDescriptor
 
 const file_transport_internet_websocket_config_proto_rawDesc = "" +
-	"\n" +
-	")transport/internet/websocket/config.proto\x12)exclave.core.transport.internet.websocket\x1a common/protoext/extensions.proto\"0\n" +
-	"\x06Header\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value\"\x87\x03\n" +
-	"\x06Config\x12\x12\n" +
-	"\x04path\x18\x02 \x01(\tR\x04path\x12I\n" +
-	"\x06header\x18\x03 \x03(\v21.exclave.core.transport.internet.websocket.HeaderR\x06header\x122\n" +
-	"\x15accept_proxy_protocol\x18\x04 \x01(\bR\x13acceptProxyProtocol\x12$\n" +
-	"\x0emax_early_data\x18\x05 \x01(\x05R\fmaxEarlyData\x124\n" +
-	"\x16use_browser_forwarding\x18\x06 \x01(\bR\x14useBrowserForwarding\x123\n" +
-	"\x16early_data_header_name\x18\a \x01(\tR\x13earlyDataHeaderName\x121\n" +
-	"\x15parse_x_forwarded_for\x18\b \x01(\bR\x12parseXForwardedFor: \x82\xb5\x18\x1c\n" +
-	"\ttransport\x12\x02ws\x8a\xff)\twebsocketJ\x04\b\x01\x10\x02B\xbb\x01\n" +
-	"Ccom.github.exclavenetwork.exclave.core.transport.internet.websocketP\x01ZFgithub.com/exclavenetwork/exclave-core/v5/transport/internet/websocket\xaa\x02)Exclave.Core.Transport.Internet.Websocketb\x06proto3"
+	"\n)transport/internet/websocket/config.proto\x12)exclave.core.transport.internet.websocket" +
+	"\x1a common/protoext/extensions.proto\"0\n\x06Header\x12\x10\n\x03key\x18\x01 \x01(\tR\x03" +
+	"key\x12\x14\n\x05value\x18\x02 \x01(\tR\x05value\"\xac\x03\n\x06Config\x12\x12\n\x04path" +
+	"\x18\x02 \x01(\tR\x04path\x12I\n\x06header\x18\x03 \x03(\x0b21.exclave.core.transport.inte" +
+	"rnet.websocket.HeaderR\x06header\x122\n\x15accept_proxy_protocol\x18\x04 \x01(\x08R\x13acc" +
+	"eptProxyProtocol\x12$\n\x0emax_early_data\x18\x05 \x01(\x05R\x0cmaxEarlyData\x124\n\x16use" +
+	"_browser_forwarding\x18\x06 \x01(\x08R\x14useBrowserForwarding\x123\n\x16early_data_header" +
+	"_name\x18\x07 \x01(\tR\x13earlyDataHeaderName\x121\n\x15parse_x_forwarded_for\x18\x08 \x01" +
+	"(\x08R\x12parseXForwardedFor\x12#\n\rfronting_host\x18\t \x01(\tR\x0cfrontingHost: \x82" +
+	"\xb5\x18\x1c\n\ttransport\x12\x02ws\x8a\xff)\twebsocketJ\x04\x08\x01\x10\x02B\xbb\x01\nCco" +
+	"m.github.exclavenetwork.exclave.core.transport.internet.websocketP\x01ZFgithub.com/exclave" +
+	"network/exclave-core/v5/transport/internet/websocket\xaa\x02)Exclave.Core.Transport.Intern" +
+	"et.Websocketb\x06proto3"
 
 var (
 	file_transport_internet_websocket_config_proto_rawDescOnce sync.Once
