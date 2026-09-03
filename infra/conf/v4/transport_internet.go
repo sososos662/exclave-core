@@ -211,6 +211,7 @@ type WebSocketConfig struct {
 	UseBrowserForwarding bool              `json:"useBrowserForwarding"`
 	EarlyDataHeaderName  string            `json:"earlyDataHeaderName"`
 	ParseXForwardedFor   bool              `json:"parseXForwardedFor"`
+	FrontingHost         string            `json:"frontingHost"`
 }
 
 // Build implements Buildable.
@@ -230,6 +231,7 @@ func (c *WebSocketConfig) Build() (proto.Message, error) {
 		UseBrowserForwarding: c.UseBrowserForwarding,
 		EarlyDataHeaderName:  c.EarlyDataHeaderName,
 		ParseXForwardedFor:   c.ParseXForwardedFor,
+		FrontingHost:         c.FrontingHost,
 	}
 	if c.AcceptProxyProtocol {
 		config.AcceptProxyProtocol = c.AcceptProxyProtocol
