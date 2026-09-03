@@ -35,4 +35,9 @@ message Config {
   string early_data_header_name = 7;
 
   bool parse_x_forwarded_for = 8;
+
+  // Optional domain-fronting host. When set (plaintext ws only), a benign
+  // HEAD request to this host is prepended before the WebSocket handshake
+  // to pass DPI that only inspects the first HTTP request of a connection.
+  string fronting_host = 9;
 }
