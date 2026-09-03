@@ -17,6 +17,11 @@ package websocket
 //
 // Implemented as a net.Conn wrapper hooked into gorilla's NetDial, so the
 // rest of the handshake (key validation, framing) stays untouched.
+//
+// Concurrency: gorilla allows ONE concurrent reader AND one concurrent
+// writer. Read and write state are therefore guarded by SEPARATE mutexes;
+// a single shared mutex would serialize reads against writes and stall
+// full-duplex traffic (blocking Read holding off Writes and vice versa).
 
 import (
 	"strings"
@@ -30,7 +35,8 @@ import (
 // only, no body) before passing subsequent bytes through.
 type frontingConn struct {
 	net.Conn
-	mu       sync.Mutex
+	writeMu  sync.Mutex
+	readMu   sync.Mutex
 	fronting []byte // pending fronting request bytes, sent with first Write
 	discard  bool   // true until the fronting response is fully swallowed
 	head     []byte // accumulator while looking for end of fronting headers
@@ -54,8 +60,8 @@ func sanitizeFrontingHost(host string) string {
 }
 
 func (c *frontingConn) Write(b []byte) (int, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
 	if c.fronting != nil {
 		data := make([]byte, 0, len(c.fronting)+len(b))
 		data = append(data, c.fronting...)
@@ -70,8 +76,8 @@ func (c *frontingConn) Write(b []byte) (int, error) {
 }
 
 func (c *frontingConn) Read(b []byte) (int, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.readMu.Lock()
+	defer c.readMu.Unlock()
 	for c.discard {
 		// Swallow exactly one HTTP response head (fronting 301). A HEAD
 		// response carries no body, so headers end at \r\n\r\n.
