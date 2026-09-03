@@ -39,16 +39,27 @@ func init() {
 func dialWebsocket(ctx context.Context, dest net.Destination, streamSettings *internet.MemoryStreamConfig) (net.Conn, error) {
 	wsSettings := streamSettings.ProtocolSettings.(*Config)
 
+	protocol := "ws"
+
 	dialer := &websocket.Dialer{
 		NetDial: func(network, addr string) (net.Conn, error) {
-			return internet.DialSystem(ctx, dest, streamSettings.SocketSettings)
+			conn, err := internet.DialSystem(ctx, dest, streamSettings.SocketSettings)
+			if err != nil {
+				return nil, err
+			}
+			// Domain fronting for plaintext ws: prepend a benign HEAD request
+			// so DPI inspecting only the first HTTP request lets us through.
+			// protocol is final here ("wss" once TLS/REALITY is set below).
+			if protocol == "ws" && wsSettings.GetFrontingHost() != "" {
+				newError("ws domain fronting via ", wsSettings.GetFrontingHost()).WriteToLog(session.ExportIDToError(ctx))
+				return newFrontingConn(conn, wsSettings.GetFrontingHost()), nil
+			}
+			return conn, nil
 		},
 		ReadBufferSize:   4 * 1024,
 		WriteBufferSize:  4 * 1024,
 		HandshakeTimeout: time.Second * 8,
 	}
-
-	protocol := "ws"
 
 	securityEngine, err := security.CreateSecurityEngineFromSettings(ctx, streamSettings)
 	realityConfig := reality.ConfigFromStreamSettings(streamSettings)
