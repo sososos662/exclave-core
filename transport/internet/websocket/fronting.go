@@ -24,11 +24,21 @@ package websocket
 // full-duplex traffic (blocking Read holding off Writes and vice versa).
 
 import (
+	"bytes"
+	"errors"
 	"strings"
 	"sync"
 
 	"github.com/exclavenetwork/exclave-core/v5/common/net"
 )
+
+// maxFrontingHeadSize caps how many bytes are buffered while looking for the
+// end of the fronting HTTP response head. A HEAD response carries headers
+// only (a Cloudflare 301 is well under 1KB); anything larger means a broken
+// peer, and accumulating without a bound would grow memory forever.
+const maxFrontingHeadSize = 1 << 16
+
+var crlfcrlf = []byte("\r\n\r\n")
 
 // frontingConn wraps a TCP connection: the first Write prepends the fronting
 // request, and reads swallow the fronting HTTP response (HEAD => headers
@@ -41,10 +51,14 @@ type frontingConn struct {
 	discard  bool   // true until the fronting response is fully swallowed
 	head     []byte // accumulator while looking for end of fronting headers
 	pending  []byte // bytes already received past the fronting response
+	off      int    // consumed prefix of pending
 }
 
 func newFrontingConn(conn net.Conn, host string) net.Conn {
 	host = sanitizeFrontingHost(host)
+	if host == "" {
+		return conn
+	}
 	req := "HEAD / HTTP/1.1\r\nHost: " + host + "\r\nConnection: Keep-Alive\r\n\r\n"
 	return &frontingConn{Conn: conn, fronting: []byte(req), discard: true}
 }
@@ -78,40 +92,47 @@ func (c *frontingConn) Write(b []byte) (int, error) {
 func (c *frontingConn) Read(b []byte) (int, error) {
 	c.readMu.Lock()
 	defer c.readMu.Unlock()
-	for c.discard {
+	if c.discard {
 		// Swallow exactly one HTTP response head (fronting 301). A HEAD
-		// response carries no body, so headers end at \r\n\r\n.
-		tmp := make([]byte, 1<<11)
-		n, err := c.Conn.Read(tmp)
-		if n > 0 {
-			c.head = append(c.head, tmp[:n]...)
-		}
-		if err != nil && n == 0 {
-			return 0, err
-		}
-		if i := indexDoubleCRLF(c.head); i >= 0 {
-			c.pending = append([]byte{}, c.head[i+4:]...)
-			c.head = nil
-			c.discard = false
-			break
-		}
-		if err != nil {
+		// response carries no body, so headers end at \r\n\r\n. Anything
+		// already received past it (pipelined 101, WS frames) is kept in
+		// pending and served first.
+		if err := c.swallowResponseHead(); err != nil {
 			return 0, err
 		}
 	}
-	if len(c.pending) > 0 {
-		n := copy(b, c.pending)
-		c.pending = append([]byte{}, c.pending[n:]...)
+	if c.off < len(c.pending) {
+		n := copy(b, c.pending[c.off:])
+		c.off += n
+		if c.off == len(c.pending) {
+			c.pending = nil
+			c.off = 0
+		}
 		return n, nil
 	}
 	return c.Conn.Read(b)
 }
 
-func indexDoubleCRLF(b []byte) int {
-	for i := 0; i+3 < len(b); i++ {
-		if b[i] == '\r' && b[i+1] == '\n' && b[i+2] == '\r' && b[i+3] == '\n' {
-			return i
+// swallowResponseHead consumes bytes until the end of the first HTTP response
+// head. Must be called with readMu held.
+func (c *frontingConn) swallowResponseHead() error {
+	var tmp [2048]byte
+	for {
+		n, err := c.Conn.Read(tmp[:])
+		if n > 0 {
+			if len(c.head)+n > maxFrontingHeadSize {
+				return errors.New("fronting response head too large")
+			}
+			c.head = append(c.head, tmp[:n]...)
+			if i := bytes.Index(c.head, crlfcrlf); i >= 0 {
+				c.pending = c.head[i+4:]
+				c.head = nil
+				c.discard = false
+				return nil
+			}
+		}
+		if err != nil {
+			return err
 		}
 	}
-	return -1
 }

@@ -50,10 +50,9 @@ func dialWebsocket(ctx context.Context, dest net.Destination, streamSettings *in
 			// Domain fronting for plaintext ws: prepend a benign HEAD request
 			// so DPI inspecting only the first HTTP request lets us through.
 			// protocol is final here ("wss" once TLS/REALITY is set below).
-			if protocol == "ws" && wsSettings.GetFrontingHost() != "" {
-				newError("ws domain fronting via ", wsSettings.GetFrontingHost()).WriteToLog(session.ExportIDToError(ctx))
-				return newFrontingConn(conn, wsSettings.GetFrontingHost()), nil
-			}
+		if protocol == "ws" && wsSettings.GetFrontingHost() != "" {
+			return newFrontingConn(conn, wsSettings.GetFrontingHost()), nil
+		}
 			return conn, nil
 		},
 		ReadBufferSize:   4 * 1024,
