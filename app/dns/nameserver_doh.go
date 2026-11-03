@@ -91,11 +91,7 @@ func NewDoHLocalNameServer(url *url.URL) *DoHNameServer {
 					return nil, err
 				}
 				ctx = session.ContextWithConnectionPool(ctx, connectionPool)
-				conn, err := internet.DialSystem(ctx, dest, nil)
-				if err != nil {
-					return nil, err
-				}
-				return conn, nil
+				return internet.DialSystem(ctx, dest, nil)
 			},
 		}
 		return &http.Client{
@@ -330,7 +326,7 @@ func (s *DoHNameServer) dohHTTPSContext(ctx context.Context, b []byte) ([]byte, 
 	}
 
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		io.Copy(io.Discard, resp.Body) // flush resp.Body so that the conn is reusable
 		return nil, fmt.Errorf("DOH server returned code %d", resp.StatusCode)
 	}

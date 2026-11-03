@@ -125,33 +125,29 @@ func (c *Client) Init(config *Config, policyManager policy.Manager) error {
 	}
 
 	var publicKeys []ssh.PublicKey
-	if config.PublicKey != "" {
-		lines := strings.FieldsFunc(config.PublicKey, func(r rune) bool {
-			return r == '\r' || r == '\n'
-		})
-		for _, line := range lines {
-			if len(line) == 0 {
-				continue
-			}
-			publicKey, _, _, _, err := ssh.ParseAuthorizedKey([]byte(line))
+	if len(config.PublicKey) > 0 {
+		data := []byte(config.PublicKey)
+		for len(data) > 0 {
+			publicKey, _, _, rest, err := ssh.ParseAuthorizedKey(data)
 			if err != nil {
-				return newError("parse public key").Base(err)
+				break
 			}
 			publicKeys = append(publicKeys, publicKey)
+			data = rest
 		}
 	}
-	if publicKeys != nil {
+	if len(publicKeys) > 0 {
 		c.hostKeyCallback = func(hostname string, remote net.Addr, key ssh.PublicKey) error {
 			if slices.ContainsFunc(publicKeys, func(publicKey ssh.PublicKey) bool {
 				return bytes.Equal(key.Marshal(), publicKey.Marshal())
 			}) {
 				return nil
 			}
-			return newError("ssh host key mismatch, server send ", key.Type(), " ", base64.StdEncoding.EncodeToString(key.Marshal()))
+			return newError("ssh host key mismatch, server sends ", key.Type(), " ", base64.StdEncoding.EncodeToString(key.Marshal()))
 		}
 	} else {
 		c.hostKeyCallback = func(hostname string, remote net.Addr, key ssh.PublicKey) error {
-			newError("please save server public key for verification").AtError().WriteToLog()
+			newError("please save host key for verification").AtError().WriteToLog()
 			newError(key.Type(), " ", base64.StdEncoding.EncodeToString(key.Marshal())).AtError().WriteToLog()
 			return nil
 		}
@@ -269,29 +265,31 @@ func (c *Client) connect(ctx context.Context, dialer internet.Dialer) (*sshClien
 		err := client.Wait()
 		newError("ssh client closed").Base(err).AtDebug().WriteToLog()
 		c.clientAccess.Lock()
-		client.Close()
 		c.client = nil
 		c.clientAccess.Unlock()
+		client.Close()
 	}()
 	return client, nil
 }
 
 func (c *Client) InterfaceUpdate() {
 	c.clientAccess.Lock()
-	if c.client != nil {
-		c.client.Close()
-	}
+	client := c.client
 	c.client = nil
 	c.clientAccess.Unlock()
+	if client != nil {
+		client.Close()
+	}
 }
 
 func (c *Client) Close() error {
 	c.closed = true
 	c.clientAccess.Lock()
-	if c.client != nil {
-		c.client.Close()
-	}
+	client := c.client
 	c.client = nil
 	c.clientAccess.Unlock()
+	if client != nil {
+		client.Close()
+	}
 	return nil
 }

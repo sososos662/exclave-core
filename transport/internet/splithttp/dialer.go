@@ -5,6 +5,7 @@ import (
 	gotls "crypto/tls"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptrace"
 	"net/url"
@@ -62,15 +63,16 @@ func (t *transportConnectionState) IsTransientStorageLifecycleReceiver() {
 
 func (t *transportConnectionState) Close() error {
 	t.scopedDialerAccess.Lock()
-	for _, manager := range t.scopedDialerMap {
+	managers := maps.Values(t.scopedDialerMap)
+	clear(t.scopedDialerMap)
+	t.scopedDialerAccess.Unlock()
+	for manager := range managers {
 		for _, client := range manager.xmuxClients {
 			if c, ok := client.XmuxConn.(*DefaultDialerClient); ok && !c.closed.Load() {
-				c.client.CloseIdleConnections()
+				c.close()
 			}
 		}
 	}
-	clear(t.scopedDialerMap)
-	t.scopedDialerAccess.Unlock()
 	return nil
 }
 
@@ -107,7 +109,7 @@ func getHTTPClient(ctx context.Context, dest net.Destination, streamSettings *in
 
 	if !found {
 		transportConfig := streamSettings.ProtocolSettings.(*Config)
-		xmuxManager, err = NewXmuxManager(transportConfig.Xmux, func() (XmuxConn, error) {
+		xmuxManager, err = NewXmuxManager(transportConfig.Xmux, func() XmuxConn {
 			return createHTTPClient(ctx, dest, streamSettings)
 		})
 		if err != nil {
@@ -116,10 +118,7 @@ func getHTTPClient(ctx context.Context, dest net.Destination, streamSettings *in
 		stateTyped.scopedDialerMap[dialerConf{dest, streamSettings}] = xmuxManager
 	}
 
-	xmuxClient, err := xmuxManager.GetXmuxClient(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
+	xmuxClient := xmuxManager.GetXmuxClient(ctx)
 	return xmuxClient.XmuxConn.(DialerClient), xmuxClient, nil
 }
 
@@ -142,7 +141,7 @@ func decideHTTPVersion(tlsConfig *tls.Config, realityConfig *reality.Config) str
 	return "2"
 }
 
-func createHTTPClient(ctx context.Context, dest net.Destination, streamSettings *internet.MemoryStreamConfig) (DialerClient, error) {
+func createHTTPClient(ctx context.Context, dest net.Destination, streamSettings *internet.MemoryStreamConfig) DialerClient {
 	var tlsConfig *tls.Config
 	var realityConfig *reality.Config
 	switch cfg := streamSettings.SecuritySettings.(type) {
@@ -166,7 +165,12 @@ func createHTTPClient(ctx context.Context, dest net.Destination, streamSettings 
 			if err != nil {
 				return nil, err
 			}
-			return reality.UClient(detachedCtx, conn, dest, realityConfig)
+			realityConn, err := reality.Client(detachedCtx, conn, dest, realityConfig, reality.WithNextProto("h2", "http/1.1"))
+			if err != nil {
+				conn.Close()
+				return nil, err
+			}
+			return realityConn, nil
 		}
 		return transportcommon.DialWithSecuritySettings(detachedCtx, dest, streamSettings)
 	}
@@ -175,10 +179,6 @@ func createHTTPClient(ctx context.Context, dest net.Destination, streamSettings 
 
 	switch httpVersion {
 	case "3":
-		tc, err := tlsConfig.GetTLSConfigWithContext(ctx, tls.WithDestination(dest))
-		if err != nil {
-			return nil, err
-		}
 		transport = &http3.Transport{
 			QUICConfig: &quic.Config{
 				MaxIdleTimeout: connIdleTimeout,
@@ -188,8 +188,11 @@ func createHTTPClient(ctx context.Context, dest net.Destination, streamSettings 
 				MaxIncomingStreams: -1,
 				KeepAlivePeriod:    h3KeepalivePeriod,
 			},
-			TLSClientConfig: tc,
-			Dial: func(_ context.Context, addr string, tlsCfg *gotls.Config, cfg *quic.Config) (*quic.Conn, error) {
+			Dial: func(_ context.Context, addr string, _ *gotls.Config, cfg *quic.Config) (*quic.Conn, error) {
+				tlsCfg, err := tlsConfig.GetTLSConfigWithContext(ctx, tls.WithDestination(dest))
+				if err != nil {
+					return nil, err
+				}
 				detachedCtx := core.ToBackgroundDetachedContext(ctx)
 				rawConn, err := internet.DialSystem(detachedCtx, dest, streamSettings.SocketSettings)
 				if err != nil {
@@ -204,14 +207,12 @@ func createHTTPClient(ctx context.Context, dest net.Destination, streamSettings 
 				default:
 					packetConn = internet.NewConnWrapper(rawConn)
 				}
-				conn, err := quic.Dial(detachedCtx, packetConn, rawConn.RemoteAddr(), tlsCfg, cfg)
+				quicConn, err := quic.Dial(detachedCtx, packetConn, rawConn.RemoteAddr(), tlsCfg, cfg)
 				if err != nil {
+					rawConn.Close()
 					return nil, err
 				}
-				context.AfterFunc(conn.Context(), func() {
-					packetConn.Close()
-				})
-				return conn, nil
+				return quicConn, nil
 			},
 		}
 	case "2":
@@ -246,7 +247,7 @@ func createHTTPClient(ctx context.Context, dest net.Destination, streamSettings 
 		dialUploadConn: dialContext,
 	}
 
-	return client, nil
+	return client
 }
 
 func init() {
@@ -374,11 +375,11 @@ func Dial(ctx context.Context, dest net.Destination, streamSettings *internet.Me
 		}
 		switch {
 		case transportConfiguration.UseBrowserForwarding && requestURLForDownload.Scheme == "https" && destForDownload.Port != 443:
-			requestURL.Host = net.JoinHostPort(hostForDownload, destForDownload.Port.String())
+			requestURLForDownload.Host = net.JoinHostPort(hostForDownload, destForDownload.Port.String())
 		case transportConfiguration.UseBrowserForwarding && requestURLForDownload.Scheme == "http" && destForDownload.Port != 80:
-			requestURL.Host = net.JoinHostPort(hostForDownload, destForDownload.Port.String())
+			requestURLForDownload.Host = net.JoinHostPort(hostForDownload, destForDownload.Port.String())
 		default:
-			requestURL.Host = host
+			requestURLForDownload.Host = hostForDownload
 		}
 		requestURLForDownload.Path = downloadConfig.GetNormalizedPath()
 		requestURLForDownload.RawQuery = downloadConfig.GetNormalizedQuery()

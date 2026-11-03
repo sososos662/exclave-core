@@ -26,6 +26,7 @@ package websocket
 import (
 	"bytes"
 	"errors"
+	"io"
 	"strings"
 	"sync"
 
@@ -77,19 +78,24 @@ func (c *frontingConn) Write(b []byte) (int, error) {
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
 	if c.fronting != nil {
+		prefixSize := len(c.fronting)
 		data := make([]byte, 0, len(c.fronting)+len(b))
 		data = append(data, c.fronting...)
 		data = append(data, b...)
 		c.fronting = nil
-		if _, err := c.Conn.Write(data); err != nil {
-			return 0, err
+		n, err := c.Conn.Write(data)
+		if n < len(data) && err == nil {
+			err = io.ErrShortWrite
 		}
-		return len(b), nil
+		return max(0, n-prefixSize), err
 	}
 	return c.Conn.Write(b)
 }
 
 func (c *frontingConn) Read(b []byte) (int, error) {
+	if len(b) == 0 {
+		return 0, nil
+	}
 	c.readMu.Lock()
 	defer c.readMu.Unlock()
 	if c.discard {
@@ -120,15 +126,18 @@ func (c *frontingConn) swallowResponseHead() error {
 	for {
 		n, err := c.Conn.Read(tmp[:])
 		if n > 0 {
-			if len(c.head)+n > maxFrontingHeadSize {
-				return errors.New("fronting response head too large")
-			}
 			c.head = append(c.head, tmp[:n]...)
 			if i := bytes.Index(c.head, crlfcrlf); i >= 0 {
+				if i+len(crlfcrlf) > maxFrontingHeadSize {
+					return errors.New("fronting response head too large")
+				}
 				c.pending = c.head[i+4:]
 				c.head = nil
 				c.discard = false
 				return nil
+			}
+			if len(c.head) > maxFrontingHeadSize {
+				return errors.New("fronting response head too large")
 			}
 		}
 		if err != nil {

@@ -110,13 +110,15 @@ func (generator *TrafficGenerator) GenerateNextTraffic(ctx context.Context) erro
 	}
 	tlsConn, err := generator.tlsHandshake(conn)
 	if err != nil {
+		conn.Close()
 		return newError("failed to create TLS connection").Base(err).AtWarning()
 	}
+	defer tlsConn.Close()
 	getAlpn, ok := tlsConn.(security.ConnectionApplicationProtocol)
 	if !ok {
 		return newError("TLS connection does not support getting ALPN").AtWarning()
 	}
-	alpn, err := getAlpn.GetConnectionApplicationProtocol()
+	alpn, err := getAlpn.GetConnectionApplicationProtocol(ctx)
 	if err != nil {
 		return newError("failed to get ALPN from TLS connection").Base(err).AtWarning()
 	}
@@ -128,7 +130,7 @@ func (generator *TrafficGenerator) GenerateNextTraffic(ctx context.Context) erro
 	}
 	for {
 		if currentStep >= len(steps) {
-			return tlsConn.Close()
+			return nil
 		}
 
 		step := steps[currentStep]

@@ -220,10 +220,8 @@ func (o *Outbound) Process(ctx context.Context, link *transport.Link, dialer int
 
 	newError("tunneling request to ", destination, " via ", o.serverAddr.NetAddr()).WriteToLog(session.ExportIDToError(ctx))
 
-	detachedCtx := core.ToBackgroundDetachedContext(ctx)
-
 	if destination.Network == v2net.Network_TCP {
-		serverConn, err := client.DialContext(detachedCtx, singbridge.ToSocksAddr(destination))
+		serverConn, err := client.DialContext(ctx, singbridge.ToSocksAddr(destination))
 		if err != nil {
 			return err
 		}
@@ -244,12 +242,13 @@ func (o *Outbound) Process(ctx context.Context, link *transport.Link, dialer int
 			bytespool.Free(firstPayload)
 		}
 		if err != nil {
+			serverConn.Close()
 			return singbridge.ReturnError(err)
 		}
 
-		return singbridge.ReturnError(bufio.CopyConn(detachedCtx, singbridge.NewPipeConnWrapper(link), serverConn))
+		return singbridge.ReturnError(bufio.CopyConn(ctx, singbridge.NewPipeConnWrapper(link), serverConn))
 	} else {
-		rawConn, err := dialer.Dial(detachedCtx, o.serverAddr)
+		rawConn, err := dialer.Dial(ctx, o.serverAddr)
 		if err != nil {
 			return err
 		}
@@ -262,29 +261,33 @@ func (o *Outbound) Process(ctx context.Context, link *transport.Link, dialer int
 		if destination.Address.Family().IsDomain() {
 			addr, err = o.resolver(destination.Address.Domain())
 			if err != nil {
+				rawConn.Close()
 				return err
 			}
 		}
 		if o.version == 4 {
 			serverConn = newServerConnWrapper(serverConn)
 		}
-		return singbridge.ReturnError(bufio.CopyPacketConn(detachedCtx, newPacketConnWrapper(link, destination, addr, o.resolver), serverConn))
+		return singbridge.ReturnError(bufio.CopyPacketConn(ctx, newPacketConnWrapper(link, destination, addr, o.resolver), serverConn))
 	}
 }
 
 func (o *Outbound) InterfaceUpdate() {
 	o.clientAccess.Lock()
-	if o.client != nil {
-		o.client.Reset()
-	}
+	client := o.client
 	o.clientAccess.Unlock()
+	if client != nil {
+		client.Reset()
+	}
 }
 
 func (o *Outbound) Close() error {
 	o.clientAccess.Lock()
-	if o.client != nil {
-		_ = o.client.Close()
-	}
+	client := o.client
+	o.client = nil
 	o.clientAccess.Unlock()
+	if client != nil {
+		_ = client.Close()
+	}
 	return nil
 }

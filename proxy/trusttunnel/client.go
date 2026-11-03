@@ -53,16 +53,17 @@ func (c *Client) InterfaceUpdate() {
 
 func (c *Client) Close() error {
 	c.transportLock.Lock()
-	if c.transport != nil {
+	transport := c.transport
+	c.transport = nil
+	c.transportLock.Unlock()
+	if transport != nil {
 		switch transport := c.transport.(type) {
 		case *http3.Transport:
 			transport.Close()
 		case *http2.Transport:
 			transport.CloseIdleConnections()
 		}
-		c.transport = nil
 	}
-	c.transportLock.Unlock()
 	return nil
 }
 
@@ -222,17 +223,16 @@ func (c *Client) setupHTTPTunnel(ctx context.Context, target net.Destination, ta
 					HandshakeIdleTimeout: time.Second * 8,
 				},
 				Dial: func(_ context.Context, _ string, _ *tls.Config, cfg *quic.Config) (*quic.Conn, error) {
-					detachedContext := core.ToBackgroundDetachedContext(ctx)
 					tlsSettings := streamSettings.SecuritySettings.(*v2tls.Config)
-					tlsCfg, err := tlsSettings.GetTLSConfigWithContext(detachedContext, v2tls.WithNextProto("h3"), v2tls.WithDestination(c.serverAddress))
+					tlsCfg, err := tlsSettings.GetTLSConfigWithContext(ctx, v2tls.WithNextProto("h3"), v2tls.WithDestination(c.serverAddress))
 					if err != nil {
 						return nil, err
 					}
-					conn, err := dialer.Dial(detachedContext, c.serverAddress)
+					conn, err := dialer.Dial(ctx, c.serverAddress)
 					if err != nil {
 						return nil, err
 					}
-					quicConn, err := quic.Dial(detachedContext, newQUICPacketConn(conn), conn.RemoteAddr(), tlsCfg, cfg)
+					quicConn, err := quic.Dial(ctx, newQUICPacketConn(conn), conn.RemoteAddr(), tlsCfg, cfg)
 					if err != nil {
 						conn.Close()
 						return nil, err
@@ -244,8 +244,7 @@ func (c *Client) setupHTTPTunnel(ctx context.Context, target net.Destination, ta
 			transport = &http2.Transport{
 				ReadIdleTimeout: time.Second * 15,
 				DialTLSContext: func(_ context.Context, _, _ string, _ *tls.Config) (net.Conn, error) {
-					detachedContext := core.ToBackgroundDetachedContext(ctx)
-					conn, err := dialer.Dial(detachedContext, c.serverAddress)
+					conn, err := dialer.Dial(ctx, c.serverAddress)
 					if err != nil {
 						return nil, err
 					}
@@ -258,7 +257,7 @@ func (c *Client) setupHTTPTunnel(ctx context.Context, target net.Destination, ta
 						conn.Close()
 						return nil, newError("application layer protocol unsupported")
 					}
-					nextProto, err := connALPNGetter.GetConnectionApplicationProtocol()
+					nextProto, err := connALPNGetter.GetConnectionApplicationProtocol(ctx)
 					if err != nil {
 						conn.Close()
 						return nil, err
@@ -305,7 +304,7 @@ func (c *Client) setupHTTPTunnel(ctx context.Context, target net.Destination, ta
 		_, pErr = pw.Write(firstPayload)
 	})
 
-	resp, err := transport.RoundTrip(req) // nolint: bodyclose
+	resp, err := transport.RoundTrip(req.WithContext(ctx)) // nolint: bodyclose
 	if err != nil {
 		return nil, err
 	}

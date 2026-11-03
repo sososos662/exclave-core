@@ -2,6 +2,8 @@ package websocket
 
 import (
 	"bytes"
+	"errors"
+	"io"
 	gonet "net"
 	"sync"
 	"testing"
@@ -234,5 +236,56 @@ func TestEmptyHostPassthrough(t *testing.T) {
 	defer client.Close()
 	if fc := newFrontingConn(client, "  \r\n "); fc != client {
 		t.Fatal("blank host should return the raw conn")
+	}
+}
+
+type frontingTestConn struct {
+	gonet.Conn
+	reader io.Reader
+	write  func([]byte) (int, error)
+}
+
+func (c *frontingTestConn) Read(b []byte) (int, error)  { return c.reader.Read(b) }
+func (c *frontingTestConn) Write(b []byte) (int, error) { return c.write(b) }
+
+type frontingChunkReader struct{ io.Reader }
+
+func (r frontingChunkReader) Read(b []byte) (int, error) {
+	return r.Reader.Read(b[:min(len(b), 1500)])
+}
+
+func TestFrontingPartialWriteReportsPayloadBytes(t *testing.T) {
+	wantErr := errors.New("write interrupted")
+	conn := &frontingTestConn{write: func(b []byte) (int, error) {
+		prefix := bytes.Index(b, crlfcrlf) + len(crlfcrlf)
+		return prefix + 3, wantErr
+	}}
+	fc := newFrontingConn(conn, "front.example")
+	n, err := fc.Write([]byte(testHandshake))
+	if n != 3 || !errors.Is(err, wantErr) {
+		t.Fatalf("Write = (%d, %v), want (3, interrupted)", n, err)
+	}
+}
+
+func TestFrontingEmptyReadDoesNotTouchNetwork(t *testing.T) {
+	fc := newFrontingConn(&frontingTestConn{reader: bytes.NewReader(nil)}, "front.example")
+	n, err := fc.Read(nil)
+	if n != 0 || err != nil {
+		t.Fatalf("Read(nil) = (%d, %v), want (0, nil)", n, err)
+	}
+}
+
+func TestFrontingHeaderLimitExcludesPipelinedPayload(t *testing.T) {
+	head := []byte("HTTP/1.1 200 OK\r\nX-Padding: ")
+	head = append(head, bytes.Repeat([]byte("x"), maxFrontingHeadSize-len(head)-8)...)
+	head = append(head, crlfcrlf...)
+	payload := append([]byte(test101), bytes.Repeat([]byte("data"), 1024)...)
+	fc := newFrontingConn(&frontingTestConn{reader: frontingChunkReader{bytes.NewReader(append(head, payload...))}}, "front.example")
+	got, err := io.ReadAll(fc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, payload) {
+		t.Fatal("pipelined handshake or payload was lost")
 	}
 }

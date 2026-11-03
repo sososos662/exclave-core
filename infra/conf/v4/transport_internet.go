@@ -309,9 +309,10 @@ func (c *HTTPUpgradeConfig) Build() (proto.Message, error) {
 }
 
 type QUICConfig struct {
-	Header   json.RawMessage `json:"header"`
-	Security string          `json:"security"`
-	Key      string          `json:"key"`
+	Header             json.RawMessage `json:"header"`
+	Security           string          `json:"security"`
+	Key                string          `json:"key"`
+	ConnectionIDLength *uint32         `json:"connectionIDLength"`
 }
 
 // Build implements Buildable.
@@ -345,6 +346,8 @@ func (c *QUICConfig) Build() (proto.Message, error) {
 	config.Security = &protocol.SecurityConfig{
 		Type: st,
 	}
+
+	config.ConnectionIdLength = c.ConnectionIDLength
 
 	return config, nil
 }

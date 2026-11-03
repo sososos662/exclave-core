@@ -79,9 +79,9 @@ type Config struct {
 	EarlyDataHeaderName  string    `protobuf:"bytes,7,opt,name=early_data_header_name,json=earlyDataHeaderName,proto3" json:"early_data_header_name,omitempty"`
 	ParseXForwardedFor   bool      `protobuf:"varint,8,opt,name=parse_x_forwarded_for,json=parseXForwardedFor,proto3" json:"parse_x_forwarded_for,omitempty"`
 	// Optional domain-fronting host, see config.proto.
-	FrontingHost         string    `protobuf:"bytes,9,opt,name=fronting_host,json=frontingHost,proto3" json:"fronting_host,omitempty"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	FrontingHost  string `protobuf:"bytes,9,opt,name=fronting_host,json=frontingHost,proto3" json:"fronting_host,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Config) Reset() {

@@ -3,6 +3,7 @@ package utls
 import (
 	"context"
 	systls "crypto/tls"
+	"sync/atomic"
 
 	utls "github.com/refraction-networking/utls"
 
@@ -93,11 +94,10 @@ func (e Engine) Client(conn net.Conn, opts ...security.Option) (security.Conn, e
 		return nil, newError("unable to build utls handshake state after modification").Base(err)
 	}
 
-	err = utlsClientConn.Handshake()
-	if err != nil {
-		return nil, newError("unable to finish utls handshake").Base(err)
-	}
-	return UTLSClientConnection{utlsClientConn}, nil
+	return UTLSClientConnection{
+		UConn:               utlsClientConn,
+		suppressCloseNotify: new(atomic.Bool),
+	}, nil
 }
 
 func (e Engine) GetServerName() string {
@@ -106,10 +106,22 @@ func (e Engine) GetServerName() string {
 
 type UTLSClientConnection struct {
 	*utls.UConn
+	suppressCloseNotify *atomic.Bool
 }
 
-func (u UTLSClientConnection) GetConnectionApplicationProtocol() (string, error) {
-	if err := u.Handshake(); err != nil {
+func (u UTLSClientConnection) SuppressCloseNotify() {
+	u.suppressCloseNotify.Store(true)
+}
+
+func (u UTLSClientConnection) Close() error {
+	if u.suppressCloseNotify.Load() {
+		return u.UConn.NetConn().Close()
+	}
+	return u.UConn.Close()
+}
+
+func (u UTLSClientConnection) GetConnectionApplicationProtocol(ctx context.Context) (string, error) {
+	if err := u.HandshakeContext(ctx); err != nil {
 		return "", err
 	}
 	return u.ConnectionState().NegotiatedProtocol, nil

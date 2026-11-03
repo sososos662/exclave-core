@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	gotls "crypto/tls"
+	"maps"
 	gonet "net"
 	"net/http"
 	"net/url"
@@ -41,11 +42,12 @@ func (t *transportConnectionState) IsTransientStorageLifecycleReceiver() {
 
 func (t *transportConnectionState) Close() error {
 	t.scopedDialerAccess.Lock()
-	for _, client := range t.scopedDialerMap {
-		client.CloseIdleConnections()
-	}
+	clients := maps.Values(t.scopedDialerMap)
 	clear(t.scopedDialerMap)
 	t.scopedDialerAccess.Unlock()
+	for client := range clients {
+		client.CloseIdleConnections()
+	}
 	return nil
 }
 
@@ -103,18 +105,23 @@ func getHTTPClient(ctx context.Context, dest net.Destination, securityEngine *se
 			}
 
 			if realitySettings := reality.ConfigFromStreamSettings(streamSettings); realitySettings != nil {
-				return reality.UClient(detachedContext, pconn, dest, realitySettings)
+				realityConn, err := reality.Client(detachedContext, pconn, dest, realitySettings, reality.WithNextProto("h2"))
+				if err != nil {
+					pconn.Close()
+					return nil, err
+				}
+				return realityConn, nil
 			}
 
-			cn, err := (*securityEngine).Client(pconn,
-				security.OptionWithDestination{Dest: dest})
+			cn, err := (*securityEngine).Client(pconn, security.OptionWithDestination{Dest: dest})
 			if err != nil {
+				pconn.Close()
 				return nil, err
 			}
 
 			protocol := ""
 			if connAPLNGetter, ok := cn.(security.ConnectionApplicationProtocol); ok {
-				connectionALPN, err := connAPLNGetter.GetConnectionApplicationProtocol()
+				connectionALPN, err := connAPLNGetter.GetConnectionApplicationProtocol(detachedContext)
 				if err != nil {
 					cn.Close()
 					return nil, newError("failed to get connection ALPN").Base(err).AtWarning()

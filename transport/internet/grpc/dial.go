@@ -3,6 +3,7 @@ package grpc
 import (
 	"context"
 	gotls "crypto/tls"
+	"maps"
 	gonet "net"
 	"sync"
 	"time"
@@ -59,11 +60,12 @@ func (t *transportConnectionState) IsTransientStorageLifecycleReceiver() {
 
 func (t *transportConnectionState) Close() error {
 	t.scopedDialerAccess.Lock()
-	defer t.scopedDialerAccess.Unlock()
-	for _, conn := range t.scopedDialerMap {
+	conns := maps.Values(t.scopedDialerMap)
+	clear(t.scopedDialerMap)
+	t.scopedDialerAccess.Unlock()
+	for conn := range conns {
 		_ = conn.Close()
 	}
-	clear(t.scopedDialerMap)
 	return nil
 }
 
@@ -156,9 +158,14 @@ func getGrpcClient(ctx context.Context, dest net.Destination, streamSettings *in
 				return nil, err
 			}
 			if realityConfig := reality.ConfigFromStreamSettings(streamSettings); realityConfig != nil {
-				return reality.UClient(detachedContext, conn, dest, realityConfig)
+				realityConn, err := reality.Client(detachedContext, conn, dest, realityConfig, reality.WithNextProto("h2"))
+				if err != nil {
+					conn.Close()
+					return nil, err
+				}
+				return realityConn, nil
 			}
-			return conn, err
+			return conn, nil
 		}),
 		grpc.WithDisableServiceConfig(),
 	}

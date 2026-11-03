@@ -3,29 +3,15 @@ package reality
 import (
 	"context"
 
-	utls "github.com/metacubex/utls"
+	"github.com/exclavenetwork/reality"
 
 	"github.com/exclavenetwork/exclave-core/v5/common/net"
 )
 
-type Conn struct {
-	*utls.Conn
-}
-
-func (c *Conn) HandshakeAddress() net.Address {
-	if err := c.Handshake(); err != nil {
-		return nil
-	}
-	state := c.ConnectionState()
-	if state.ServerName == "" {
-		return nil
-	}
-	return net.ParseAddress(state.ServerName)
-}
-
-func Server(ctx context.Context, conn net.Conn, config *utls.RealityConfig) (net.Conn, error) {
-	realityConn, err := utls.RealityServer(ctx, conn, config)
+func Server(ctx context.Context, conn net.Conn, config *reality.Config) (net.Conn, error) {
+	realityConn, err := reality.RealityServer(ctx, conn, config)
 	if err != nil {
+		// conn closed by reality.RealityServer
 		return nil, err
 	}
 	return &Conn{Conn: realityConn}, nil
